@@ -1,0 +1,9 @@
+
+{
+  "name": "Find Karo - Real-time Grocery Finder",
+  "description": "A premium grocery inventory finder with real-time updates for shoppers and store owners.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
