@@ -218,13 +218,23 @@ const AuthScreen = ({ role, onBack, onLogin }: any) => {
       setWaitingArea(true);
       setLoading(false);
     } else {
-      const userId = Math.random().toString(36).substr(2, 9);
+      let userId = '';
+      try {
+        userId = 'u_' + btoa(email).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_').slice(0, 12);
+      } catch (e) {
+        userId = Math.random().toString(36).substr(2, 9);
+      }
       onLogin({ id: userId, name: name || email.split('@')[0], email, role, avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}` });
     }
   };
 
   const finalizeOwnerRequest = () => {
-    const userId = Math.random().toString(36).substr(2, 9);
+    let userId = '';
+    try {
+      userId = 'u_' + btoa(email).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_').slice(0, 12);
+    } catch (e) {
+      userId = Math.random().toString(36).substr(2, 9);
+    }
     const storeId = 'store_' + userId;
     // FREE plan auto-approved for immediate feedback for user
     const isAutoApproved = selectedPlan === 'FREE'; 
@@ -920,15 +930,42 @@ const AdminDashboard = () => {
 
 // --- Main App Component ---
 function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<UserRole | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const raw = localStorage.getItem('fk_user');
+      return raw ? JSON.parse(raw) as User : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [role, setRole] = useState<UserRole | null>(() => user?.role || null);
   const [view, setView] = useState<'WELCOME' | 'AUTH' | 'DASHBOARD'>('WELCOME');
-  const [stores, setStores] = useState<Store[]>(MOCK_STORES);
-  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS);
+  const [stores, setStores] = useState<Store[]>(() => {
+    try {
+      const raw = localStorage.getItem('fk_stores');
+      return raw ? JSON.parse(raw) as Store[] : MOCK_STORES;
+    } catch (e) { return MOCK_STORES; }
+  });
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const raw = localStorage.getItem('fk_products');
+      return raw ? JSON.parse(raw) as Product[] : MOCK_PRODUCTS;
+    } catch (e) { return MOCK_PRODUCTS; }
+  });
   const [insights, setInsights] = useState<SearchInsight[]>([]);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      const raw = localStorage.getItem('fk_notifications');
+      return raw ? JSON.parse(raw) as AppNotification[] : [];
+    } catch (e) { return []; }
+  });
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
-  const [chats, setChats] = useState<Record<string, Message[]>>({});
+  const [chats, setChats] = useState<Record<string, Message[]>>(() => {
+    try {
+      const raw = localStorage.getItem('fk_chats');
+      return raw ? JSON.parse(raw) as Record<string, Message[]> : {};
+    } catch (e) { return {}; }
+  });
   const [bgMusicPlaying, setBgMusicPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
@@ -948,8 +985,30 @@ function App() {
       audioRef.current?.pause();
     }
   }, [view, bgMusicPlaying]);
-  
-  const logout = () => { setUser(null); setRole(null); setView('WELCOME'); setSelectedStore(null); };
+
+  // persist user to localStorage so user remains signed in across reloads
+  useEffect(() => {
+    try {
+      if (user) localStorage.setItem('fk_user', JSON.stringify(user));
+      else localStorage.removeItem('fk_user');
+    } catch (e) {}
+  }, [user]);
+
+  // persist stores/products/chats/notifications
+  useEffect(() => {
+    try { localStorage.setItem('fk_stores', JSON.stringify(stores)); } catch (e) {}
+  }, [stores]);
+  useEffect(() => {
+    try { localStorage.setItem('fk_products', JSON.stringify(products)); } catch (e) {}
+  }, [products]);
+  useEffect(() => {
+    try { localStorage.setItem('fk_chats', JSON.stringify(chats)); } catch (e) {}
+  }, [chats]);
+  useEffect(() => {
+    try { localStorage.setItem('fk_notifications', JSON.stringify(notifications)); } catch (e) {}
+  }, [notifications]);
+
+  const logout = () => { setUser(null); setRole(null); setView('WELCOME'); setSelectedStore(null); try { localStorage.removeItem('fk_user'); } catch (e) {} };
 
   const sendChatMessage = (chatId: string, message: Message) => {
     setChats(prev => ({
@@ -964,6 +1023,12 @@ function App() {
       insights, setInsights, notifications, setNotifications, playSound, logout, chats, sendChatMessage 
     }}>
       <div className="relative w-full max-w-md h-screen mx-auto bg-white shadow-2xl overflow-hidden flex flex-col font-outfit">
+        {/* Always-visible Sign-In button when no user is authenticated */}
+        {!user && (
+          <div className="absolute top-4 right-4 z-50">
+            <button onClick={() => setView('AUTH')} className="px-3 py-2 rounded-full bg-slate-900 text-white text-xs font-bold">Sign In</button>
+          </div>
+        )}
         <AnimatePresence mode="wait">
           {view === 'WELCOME' && (
             <motion.div key="welcome" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -20 }} className="h-full flex flex-col p-14 bg-white islamic-pattern relative overflow-hidden">
@@ -984,11 +1049,18 @@ function App() {
               </div>
               <div className="space-y-4 pb-12 z-10">
                 <Button variant="shopper" className="w-full py-4 text-xs shadow-xl" onClick={() => { setRole('USER'); setView('AUTH'); }}>Find Local Stock</Button>
-                <Button variant="outline" className="w-full py-4 text-xs border-[2px] uppercase font-bold tracking-widest text-[9px]" onClick={() => { setRole('OWNER'); setView('AUTH'); }}>Merchant Workspace</Button>
+                {user?.role === 'OWNER' ? (
+                  <div className="space-y-2">
+                    <Button variant="merchant" className="w-full py-4 text-xs shadow-xl" onClick={() => { setView('DASHBOARD'); }}>Open Merchant Center</Button>
+                    <Button variant="outline" className="w-full py-3 text-xs uppercase font-bold tracking-widest text-[9px]" onClick={logout}>Sign Out</Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" className="w-full py-4 text-xs border-[2px] uppercase font-bold tracking-widest text-[9px]" onClick={() => { setRole('OWNER'); setView('AUTH'); }}>Merchant Workspace</Button>
+                )}
               </div>
             </motion.div>
           )}
-          {view === 'AUTH' && <AuthScreen role={role} onBack={() => setView('WELCOME')} onLogin={(u: any) => { setUser(u); setView('DASHBOARD'); }} />}
+          {view === 'AUTH' && <AuthScreen role={role} onBack={() => setView('WELCOME')} onLogin={(u: any) => { setUser(u); setRole(u.role); setView('DASHBOARD'); }} />}
           {view === 'DASHBOARD' && user && (
             <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full">
               {user.role === 'USER' ? (
